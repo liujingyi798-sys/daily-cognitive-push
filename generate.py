@@ -66,19 +66,57 @@ def call_deepseek():
     return raw
 
 
+import re
+
 def parse_breakthroughs(raw: str) -> list[dict]:
-    """解析 DeepSeek 返回的 JSON"""
-    # 去掉可能的 markdown 代码块标记
+    """解析 DeepSeek 返回的 JSON，多重容错"""
     raw = raw.strip()
-    if raw.startswith("```"):
-        lines = raw.split("\n")
-        # 去掉第一行 ```json 和最后一行 ```
+
+    # 策略1: 去掉 markdown 代码块标记
+    cleaned = raw
+    md_match = re.search(r'```(?:json)?\s*\n(.*?)\n\s*```', cleaned, re.DOTALL)
+    if md_match:
+        cleaned = md_match.group(1).strip()
+    elif cleaned.startswith("```"):
+        lines = cleaned.split("\n")
         if lines[0].startswith("```"):
             lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
+        if lines and lines[-1].strip().startswith("```"):
             lines = lines[:-1]
-        raw = "\n".join(lines)
-    return json.loads(raw)
+        cleaned = "\n".join(lines).strip()
+
+    # 策略2: 尝试直接解析
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        print(f"Direct parse failed: {e}")
+
+    # 策略3: 尝试找到 JSON 数组的起止位置
+    start = cleaned.find("[")
+    end = cleaned.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(cleaned[start:end+1])
+        except json.JSONDecodeError as e:
+            print(f"Bracket extraction failed: {e}")
+
+    # 策略4: 用正则逐条提取
+    items = []
+    # 匹配每个 {...} 对象，提取 title/body/action/question
+    pattern = r'"title"\s*:\s*"([^"]+)"\s*,\s*"body"\s*:\s*"([^"]+)"\s*,\s*"action"\s*:\s*"([^"]+)"\s*,\s*"question"\s*:\s*"([^"]+)"'
+    matches = re.findall(pattern, cleaned, re.DOTALL)
+    for m in matches:
+        items.append({
+            "title": m[0],
+            "body": m[1],
+            "action": m[2],
+            "question": m[3],
+        })
+    if items:
+        print(f"Regex extraction got {len(items)} items")
+        return items
+
+    raise ValueError(f"All parse strategies failed. Raw: {raw[:300]}...")
 
 
 def format_message(items: list[dict]) -> str:
