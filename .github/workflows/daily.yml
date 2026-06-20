@@ -26,5 +26,5 @@ jobs:
       - name: Generate & Push
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          PUSHDEER_KEY: ${{ secrets.PUSHDEER_KEY }}
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
         run: python generate.py
