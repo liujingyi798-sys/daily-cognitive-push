@@ -8,7 +8,7 @@ import requests
 from datetime import datetime
 
 DEEPSEEK_KEY = os.environ["DEEPSEEK_API_KEY"]
-PUSHDEER_KEY = os.environ["PUSHDEER_KEY"]
+PUSHPLUS_TOKEN = os.environ["PUSHPLUS_TOKEN"]
 
 SYSTEM_PROMPT = """你是纳瓦尔。你每天给一个22岁年轻人写5-10条"认知突破"——不是鸡汤，不是知识点，是一把手术刀。
 
@@ -119,36 +119,37 @@ def parse_breakthroughs(raw: str) -> list[dict]:
     raise ValueError(f"All parse strategies failed. Raw: {raw[:300]}...")
 
 
-def format_message(items: list[dict]) -> str:
-    """将认知突破格式化为 PushDeer 消息"""
+def format_message(items: list[dict]) -> tuple[str, str]:
+    """将认知突破格式化为 PushPlus 消息（返回标题和内容）"""
     today = datetime.now().strftime("%m/%d")
-    lines = [f"🧠 认知突破 · {today}\n"]
+    title = f"🧠 认知突破 · {today}"
+    lines = []
     for i, item in enumerate(items, 1):
-        lines.append(f"【{i}. {item['title']}】")
+        lines.append(f"## {i}. {item['title']}")
         lines.append(item["body"])
-        lines.append(f"▶ {item['action']}")
-        lines.append(f"❓ {item['question']}")
-        lines.append("")  # 空行
-    return "\n".join(lines)
+        lines.append(f"> ▶ {item['action']}")
+        lines.append(f"> ❓ {item['question']}")
+        lines.append("")
+    return title, "\n".join(lines)
 
 
-def push_to_phone(text: str):
-    """通过 PushDeer 推送到手机通知栏"""
-    # 拆分长消息：每条认知突破单独推送，避免消息过长
+def push_to_phone(title: str, content: str):
+    """通过 PushPlus 推送到微信（手机通知栏弹消息）"""
     resp = requests.post(
-        "https://api2.pushdeer.com/message/push",
-        data={
-            "pushkey": PUSHDEER_KEY,
-            "text": text,
-            "type": "text",
+        "https://www.pushplus.plus/send",
+        json={
+            "token": PUSHPLUS_TOKEN,
+            "title": title,
+            "content": content,
+            "template": "markdown",
         },
         timeout=15,
     )
     resp.raise_for_status()
     result = resp.json()
-    if result.get("code") != 0:
-        raise RuntimeError(f"PushDeer error: {result}")
-    print(f"PushDeer OK: {result}")
+    if result.get("code") != 200:
+        raise RuntimeError(f"PushPlus error: {result}")
+    print(f"PushPlus OK: {result}")
 
 
 def main():
@@ -160,21 +161,21 @@ def main():
         items = parse_breakthroughs(raw)
         print(f"Parsed {len(items)} breakthroughs")
 
-        msg = format_message(items)
-        print(f"Formatted message ({len(msg)} chars)")
+        title, content = format_message(items)
+        print(f"Title: {title}")
+        print(f"Content ({len(content)} chars)")
         print("---")
-        print(msg)
+        print(content[:500])
         print("---")
 
-        print("Pushing to PushDeer...")
-        push_to_phone(msg)
+        print("Pushing via PushPlus...")
+        push_to_phone(title, content)
         print("Done!")
 
     except Exception as e:
         # 出错也推一条通知
-        error_msg = f"❌ 今日认知突破生成失败\n{type(e).__name__}: {e}"
         try:
-            push_to_phone(error_msg)
+            push_to_phone("❌ 认知推送故障", f"## 今日生成失败\n\n{type(e).__name__}: {e}")
         except Exception:
             pass
         raise
